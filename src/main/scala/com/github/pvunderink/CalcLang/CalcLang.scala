@@ -1,3 +1,5 @@
+package com.github.pvunderink.CalcLang
+
 import scala.util.parsing.combinator.RegexParsers
 
 object CalcLang {

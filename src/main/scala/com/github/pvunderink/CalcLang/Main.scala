@@ -1,4 +1,6 @@
-import CalcLang.{ExprInterpreter, ExprParser}
+package com.github.pvunderink.CalcLang
+
+import com.github.pvunderink.CalcLang.CalcLang.{ExprInterpreter, ExprParser}
 
 object Main {
   def main(args: Array[String]): Unit = {
