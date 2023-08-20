@@ -51,14 +51,14 @@ object CalcLang {
       }
     }
 
-    def expr: Parser[Expr] = term ~ rep("+" ~ log(term)("Plus term") | "-" ~ log(term)("Minus term")) ^^ {
+    def expr: Parser[Expr] = term ~ rep("+" ~ term | "-" ~ term) ^^ {
       case number ~ list => list.foldLeft(number) {
         case (x, "+" ~ y) => Add(x, y)
         case (x, "-" ~ y) => Sub(x, y)
       }
     }
 
-    def fun: Parser[Expr] = id ~ "(" ~ repsep(log(expr)("Argument"), ",") ~ ")" ^^ {
+    def fun: Parser[Expr] = id ~ "(" ~ repsep(expr, ",") ~ ")" ^^ {
       case funName ~ "(" ~ list ~ ")" => Fun(funName, list)
     }
 
