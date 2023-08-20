@@ -36,7 +36,7 @@ object CalcLang {
 
     def const: Parser[Expr] = "pi" ^^ {_ => Num(math.Pi)} | "e" ^^ {_ => Num(math.E)}
 
-    def factor_without_unop: Parser[Expr] = number | const | fun | "(" ~> expr <~ ")"
+    def factor_without_unop: Parser[Expr] = number | fun | const | "(" ~> expr <~ ")"
 
     def factor: Parser[Expr] = factor_without_unop | unop
 

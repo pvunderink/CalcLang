@@ -7,7 +7,7 @@ object Main {
     val parser = new ExprParser
     val interpreter = new ExprInterpreter
 
-    val expr = parser.apply("2*pi/e")
+    val expr = parser.apply("exp(2)")
     println(expr)
 
     val result = interpreter.interp(expr)
