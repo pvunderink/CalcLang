@@ -444,7 +444,7 @@ object CalcLang {
         // Interp arguments
         val (argVals, newEnv) = args.foldLeft[(List[Value], Env)]((Nil, localEnv))((t, arg) => {
           val (value, newEnv) = interp(arg, t._2, parentEnv)
-          (value :: t._1, newEnv)
+          (t._1 ++ List(value), newEnv)
         })
 
         safeLookup(id, localEnv ++ parentEnv) match {

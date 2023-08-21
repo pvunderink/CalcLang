@@ -5,7 +5,7 @@ import com.github.pvunderink.CalcLang.CalcLang.{Inferencer, Interpreter, Parser}
 object Main {
   def main(args: Array[String]): Unit = {
     val parser = new Parser
-    val parsedProgram = parser.apply("\"kaas\" + 42 + 42 + \"kaas\"")
+    val parsedProgram = parser.apply("def test(x: num, y: num) {x + \" \" + y}; test(1, 2)")
     println(parsedProgram)
 
     val inferencer = new Inferencer
