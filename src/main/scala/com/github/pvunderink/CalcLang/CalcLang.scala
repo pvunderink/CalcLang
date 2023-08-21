@@ -459,4 +459,16 @@ object CalcLang {
       case None => throw InterpException(s"'$id' is not defined.")
     }
   }
+
+  def run(program: String): Value = {
+    val parser = new Parser
+    val parsedProgram = parser.apply(program)
+
+    val inferencer = new Inferencer
+    val typedProgram = inferencer.inferProgram(parsedProgram)
+
+    val interpreter = new Interpreter
+    val result = interpreter.interpProgram(typedProgram)
+    result
+  }
 }
