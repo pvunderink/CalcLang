@@ -60,6 +60,10 @@ object CalcLang {
     override def typ: Type = NumT()
   }
 
+  private final case class TypedConcat(l: TypedExpr, r: TypedExpr) extends TypedExpr {
+    override def typ: Type = StrT()
+  }
+
   private final case class TypedSub(l: TypedExpr, r: TypedExpr) extends TypedExpr {
     override def typ: Type = NumT()
   }
@@ -174,7 +178,6 @@ object CalcLang {
 
     private def id: Parser[String] = """[a-zA-Z][a-zA-Z0-9]*""".r
 
-    //    def const: Parser[Expr] = "pi" ^^ { _ => Num(math.Pi) } | "e" ^^ { _ => Num(math.E) }
     private def variable: Parser[Expr] = id ^^ { id => Var(id) }
 
     private def factor_without_unop: Parser[Expr] = number | bool | str | fun_app | fun_def | assign | reassign | variable | "(" ~> expr <~ ")"
@@ -286,6 +289,17 @@ object CalcLang {
       }
     }
 
+    private def tryInferConcat(l: Expr, r: Expr, env: Env): Option[(TypedExpr, Env)] = {
+      val (leftExpr, newEnv1) = infer(l, env)
+      val (rightExpr, newEnv2) = infer(r, newEnv1)
+
+      if (leftExpr.typ == StrT() || rightExpr.typ == StrT())
+        Some(TypedConcat(leftExpr, rightExpr), newEnv2)
+      else
+        None
+    }
+
+
     def inferProgram(program: List[Expr]): List[TypedExpr] = inferAll(program, Nil)._1
 
     private def infer(expr: Expr, env: Env): (TypedExpr, Env) = expr match {
@@ -294,9 +308,12 @@ object CalcLang {
       case Str(s) => (TypedStr(s), env)
       case Var(id) => (TypedVar(id, lookup(id, env)), env)
       case Neg(e) => expectType(e, NumT(), env)
-      case Add(l, r) =>
-        val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env)
-        (TypedAdd(tl, tr), newEnv)
+      case Add(l, r) => tryInferConcat(l, r, env) match {
+        case Some(concat) => concat
+        case None =>
+          val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env)
+          (TypedAdd(tl, tr), newEnv)
+      }
       case Sub(l, r) =>
         val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env)
         (TypedSub(tl, tr), newEnv)
@@ -394,6 +411,10 @@ object CalcLang {
       case TypedSub(l, r) => interpNumericBinOp(l, r, _ - _, localEnv, parentEnv)
       case TypedMul(l, r) => interpNumericBinOp(l, r, _ * _, localEnv, parentEnv)
       case TypedDiv(l, r) => interpNumericBinOp(l, r, _ / _, localEnv, parentEnv)
+      case TypedConcat(l, r) =>
+        val (leftVal, newEnv1) = interp(l, localEnv, parentEnv)
+        val (rightVal, newEnv2) = interp(r, newEnv1, parentEnv)
+        (StrVal(leftVal.toString + rightVal.toString), newEnv2)
       case TypedAssign(id, expr, _) =>
         val (newValue, newEnv) = interp(expr, localEnv, parentEnv)
 
