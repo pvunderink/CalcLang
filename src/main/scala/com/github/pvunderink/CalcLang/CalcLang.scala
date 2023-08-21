@@ -170,9 +170,11 @@ object CalcLang {
   class Parser extends RegexParsers {
     private final case class ParseException(msg: String) extends RuntimeException(msg)
 
+    private def keyword(word: String): Parser[String] = s"""\\b${word}\\b""".r ^^ { _ => word }
+
     private def number: Parser[Expr] = """\d+(\.\d*)?""".r ^^ { n => Num(n.toDouble) }
 
-    private def bool: Parser[Expr] = "true" ^^ { _ => Bool(true) } | "false" ^^ { _ => Bool(false) }
+    private def bool: Parser[Expr] = keyword("true") ^^ { _ => Bool(true) } | keyword("false") ^^ { _ => Bool(false) }
 
     private def str: Parser[Expr] = """"[\w\u0020-\u0021\u0023-\u1eff]*"""".r ^^ { s => Str(s.substring(1, s.length - 1)) }
 
@@ -188,7 +190,7 @@ object CalcLang {
       case "-" ~ e => Neg(e)
     }
 
-    private def assign: Parser[Expr] = "var" ~ id ~ "=" ~ expr ^^ {
+    private def assign: Parser[Expr] = keyword("var") ~ id ~ "=" ~ expr ^^ {
       case "var" ~ id ~ "=" ~ expr => Assign(id, expr)
     }
 
@@ -196,7 +198,7 @@ object CalcLang {
       case id ~ "=" ~ expr => Reassign(id, expr)
     }
 
-    private def typ: Parser[Type] = "num" ^^ { _ => NumT() } | "bool" ^^ { _ => BoolT() } | "str" ^^ { _ => StrT() } | funtyp
+    private def typ: Parser[Type] = keyword("num") ^^ { _ => NumT() } | keyword("bool") ^^ { _ => BoolT() } | keyword("str") ^^ { _ => StrT() } | funtyp
 
     private def funtyp: Parser[Type] = "(" ~ repsep(typ, ",") ~ ")" ~ "->" ~ typ ^^ {
       case "(" ~ params ~ ")" ~ "->" ~ ret => FunT(params, ret)
@@ -208,7 +210,7 @@ object CalcLang {
 
     private def fun_params: Parser[List[(String, Type)]] = repsep(fun_param, ",")
 
-    private def fun_def: Parser[Expr] = "def" ~ id ~ "(" ~ fun_params ~ ")" ~ "{" ~ seq ~ "}" ^^ {
+    private def fun_def: Parser[Expr] = keyword("def") ~ id ~ "(" ~ fun_params ~ ")" ~ "{" ~ seq ~ "}" ^^ {
       case "def" ~ id ~ "(" ~ params ~ ")" ~ "{" ~ body ~ "}" => FunDef(id, params, body)
     }
 
