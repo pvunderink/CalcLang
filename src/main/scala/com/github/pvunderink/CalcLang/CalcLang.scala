@@ -25,6 +25,8 @@ object CalcLang {
 
   private final case class Div(l: Expr, r: Expr) extends Expr
 
+  private final case class Remainder(l: Expr, r: Expr) extends Expr
+
   private final case class FunApp(id: String, args: List[Expr]) extends Expr
 
   private final case class FunDef(id: String, params: List[(String, Type)], body: List[Expr]) extends Expr
@@ -73,6 +75,10 @@ object CalcLang {
   }
 
   private final case class TypedDiv(l: TypedExpr, r: TypedExpr) extends TypedExpr {
+    override def typ: Type = NumT()
+  }
+
+  private final case class TypedRemainder(l: TypedExpr, r: TypedExpr) extends TypedExpr {
     override def typ: Type = NumT()
   }
 
@@ -170,7 +176,7 @@ object CalcLang {
   class Parser extends RegexParsers {
     private final case class ParseException(msg: String) extends RuntimeException(msg)
 
-    private def keyword(word: String): Parser[String] = s"""\\b${word}\\b""".r ^^ { _ => word }
+    private def keyword(word: String): Parser[String] = s"""\\b$word\\b""".r ^^ { _ => word }
 
     private def number: Parser[Expr] = """\d+(\.\d*)?""".r ^^ { n => Num(n.toDouble) }
 
@@ -184,9 +190,9 @@ object CalcLang {
 
     private def factor_without_unop: Parser[Expr] = number | bool | str | fun_app | fun_def | assign | reassign | variable | "(" ~> expr <~ ")"
 
-    private def factor: Parser[Expr] = factor_without_unop | unop
+    private def factor: Parser[Expr] = factor_without_unop | unary_op
 
-    private def unop: Parser[Expr] = "-" ~ factor_without_unop ^^ {
+    private def unary_op: Parser[Expr] = "-" ~ factor_without_unop ^^ {
       case "-" ~ e => Neg(e)
     }
 
@@ -218,10 +224,11 @@ object CalcLang {
       case funName ~ "(" ~ list ~ ")" => FunApp(funName, list)
     }
 
-    private def term: Parser[Expr] = factor ~ rep("*" ~ factor | "/" ~ factor) ^^ {
+    private def term: Parser[Expr] = factor ~ rep("*" ~ factor | "/" ~ factor | "%" ~ factor) ^^ {
       case number ~ list => list.foldLeft(number) {
         case (x, "*" ~ y) => Mul(x, y)
         case (x, "/" ~ y) => Div(x, y)
+        case (x, "%" ~ y) => Remainder(x, y)
       }
     }
 
@@ -325,6 +332,9 @@ object CalcLang {
       case Div(l, r) =>
         val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env)
         (TypedDiv(tl, tr), newEnv)
+      case Remainder(l, r) =>
+        val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env)
+        (TypedRemainder(tl, tr), newEnv)
       case FunApp(id, args) =>
         lookup(id, env) match {
           case FunT(params, ret) =>
@@ -413,6 +423,7 @@ object CalcLang {
       case TypedSub(l, r) => interpNumericBinOp(l, r, _ - _, localEnv, parentEnv)
       case TypedMul(l, r) => interpNumericBinOp(l, r, _ * _, localEnv, parentEnv)
       case TypedDiv(l, r) => interpNumericBinOp(l, r, _ / _, localEnv, parentEnv)
+      case TypedRemainder(l, r) => interpNumericBinOp(l, r, _ % _, localEnv, parentEnv)
       case TypedConcat(l, r) =>
         val (leftVal, newEnv1) = interp(l, localEnv, parentEnv)
         val (rightVal, newEnv2) = interp(r, newEnv1, parentEnv)
