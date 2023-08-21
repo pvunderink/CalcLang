@@ -1,16 +1,19 @@
 package com.github.pvunderink.CalcLang
 
-import com.github.pvunderink.CalcLang.CalcLang.{ExprInterpreter, ExprParser}
+import com.github.pvunderink.CalcLang.CalcLang.{Inferencer, Interpreter, Parser}
 
 object Main {
   def main(args: Array[String]): Unit = {
-    val parser = new ExprParser
-    val interpreter = new ExprInterpreter
+    val parser = new Parser
+    val parsedProgram = parser.apply("pi")
+    println(parsedProgram)
 
-    val expr = parser.apply("exp(2)")
-    println(expr)
+    val inferencer = new Inferencer
+    val typedProgram = inferencer.inferProgram(parsedProgram)
+    println(typedProgram)
 
-    val result = interpreter.interp(expr)
+    val interpreter = new Interpreter
+    val result = interpreter.interpProgram(typedProgram)
     println(result)
   }
 }
