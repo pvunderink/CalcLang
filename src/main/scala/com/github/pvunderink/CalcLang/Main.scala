@@ -4,7 +4,7 @@ object Main {
   def main(args: Array[String]): Unit = {
     val interpreter = new ProgramInterpreter
 
-    interpreter.run("var x = 4")
+    interpreter.run("def x() {4}")
     val result = interpreter.run("x")
 
     println(result)

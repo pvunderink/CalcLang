@@ -107,7 +107,7 @@ object CalcLang {
   }
 
   private final case class FunVal(id: String, params: List[(String, Type)], body: List[TypedExpr], ret: Type) extends Value {
-    override def toString: String = s"(${params.map(t => t._1 + ": " + t._2.toString).foldLeft("")((acc, elem) => acc + ", " + elem)}) -> ${ret.toString} { ... }"
+    override def toString: String = s"(${if (params.nonEmpty) params.map(t => t._2.toString).reduce((acc, elem) => acc + ", " + elem) else ""}) -> ${ret.toString}"
   }
 
 
@@ -126,7 +126,7 @@ object CalcLang {
   }
 
   private final case class FunT(args: List[Type], ret: Type) extends Type {
-    override def toString: String = s"(${args.map(_.toString).foldLeft("")((acc, elem) => acc + ", " + elem)}) -> ${ret.toString} { ... }"
+    override def toString: String = s"(${if (args.nonEmpty) args.map(t => t.toString).reduce((acc, elem) => acc + ", " + elem) else ""}) -> ${ret.toString}"
   }
 
   private final val builtin_functions: Map[String, (FunT, List[Value] => Value)] = Map(
