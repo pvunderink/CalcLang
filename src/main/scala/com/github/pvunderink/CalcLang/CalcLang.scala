@@ -329,7 +329,9 @@ object CalcLang {
       case Bool(b) => (TypedBool(b), env)
       case Str(s) => (TypedStr(s), env)
       case Var(id) => (TypedVar(id, lookup(id, env)), env)
-      case Neg(e) => expectType(e, NumT(), env)
+      case Neg(e) =>
+        val (te, newEnv) = expectType(e, NumT(), env)
+        (TypedNeg(te), newEnv)
       case Add(l, r) => tryInferConcat(l, r, env) match {
         case Some(concat) => concat
         case None =>
@@ -408,7 +410,6 @@ object CalcLang {
     private var env: Env = Nil
 
     def interpProgram(exprs: List[TypedExpr]): Value = {
-      println(env)
       val (value, newEnv) = interpAll(exprs, env, Nil)
       this.env = newEnv
       value

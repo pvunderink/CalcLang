@@ -4,9 +4,9 @@ object Main {
   def main(args: Array[String]): Unit = {
     val interpreter = new ProgramInterpreter
 
-    interpreter.run("def x() {4}")
-    val result = interpreter.run("x")
+    println(interpreter.parser.apply("-4"))
 
+    val result = interpreter.run("-4")
     println(result)
   }
 }
