@@ -22,7 +22,7 @@ class ProgramInterpreter(prelude: String) {
   def run(program: String): Value = {
     if (!preludeInterpreted) {
       preludeInterpreted = true
-      if (!prelude.isBlank) {
+      if (prelude.nonEmpty) {
         run(prelude)
       }
     }
