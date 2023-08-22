@@ -35,7 +35,6 @@ object CalcLang {
 
   private final case class Reassign(id: String, e: Expr) extends Expr
 
-
   sealed trait TypedExpr {
     def typ: Type
   }
@@ -308,8 +307,22 @@ object CalcLang {
         None
     }
 
+    private var env: Env = Nil
 
-    def inferProgram(program: List[Expr]): List[TypedExpr] = inferAll(program, Nil)._1
+    def reset(): Unit = {
+      env = Nil
+    }
+
+    def inferProgram(exprs: List[Expr]): List[TypedExpr] = {
+      val (typedExprs, newEnv) = inferAll(exprs, env)
+      this.env = newEnv
+      typedExprs
+    }
+
+    private def inferAll(exprs: List[Expr], env: Env): (List[TypedExpr], Env) = exprs.foldLeft[(List[TypedExpr], Env)]((Nil, env))((t, expr) => {
+      val (typedExpr, newEnv) = infer(expr, t._2)
+      (t._1 ++ List(typedExpr), newEnv)
+    })
 
     private def infer(expr: Expr, env: Env): (TypedExpr, Env) = expr match {
       case Num(n) => (TypedNum(n), env)
@@ -354,11 +367,6 @@ object CalcLang {
         val (typedExpr, newEnv) = expectType(e, typ, env)
         (TypedReassign(id, typedExpr, typedExpr.typ), newEnv)
     }
-
-    private def inferAll(exprs: List[Expr], env: Env): (List[TypedExpr], Env) = exprs.foldLeft[(List[TypedExpr], Env)]((Nil, env))((t, expr) => {
-      val (typedExpr, newEnv) = infer(expr, t._2)
-      (t._1 ++ List(typedExpr), newEnv)
-    })
   }
 
   class Interpreter {
@@ -396,9 +404,20 @@ object CalcLang {
     }
 
     private type Env = List[(String, Loc)]
-    private final val memory = new Memory
+    private var memory = new Memory
+    private var env: Env = Nil
 
-    def interpProgram(exprs: List[TypedExpr]): Value = interpAll(exprs, Nil, Nil)._1
+    def interpProgram(exprs: List[TypedExpr]): Value = {
+      println(env)
+      val (value, newEnv) = interpAll(exprs, env, Nil)
+      this.env = newEnv
+      value
+    }
+
+    def reset(): Unit = {
+      memory = new Memory
+      env = Nil
+    }
 
     @tailrec
     private def interpAll(exprs: List[TypedExpr], localEnv: Env, parentEnv: Env): (Value, Env) = exprs match {
@@ -508,17 +527,5 @@ object CalcLang {
       case Some(value) => value
       case None => throw InterpException(s"'$id' is not defined.")
     }
-  }
-
-  def run(program: String): Value = {
-    val parser = new Parser
-    val parsedProgram = parser.apply(program)
-
-    val inferencer = new Inferencer
-    val typedProgram = inferencer.inferProgram(parsedProgram)
-
-    val interpreter = new Interpreter
-    val result = interpreter.interpProgram(typedProgram)
-    result
   }
 }

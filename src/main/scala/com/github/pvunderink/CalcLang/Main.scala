@@ -4,16 +4,17 @@ import com.github.pvunderink.CalcLang.CalcLang.{Inferencer, Interpreter, Parser}
 
 object Main {
   def main(args: Array[String]): Unit = {
-    val parser = new Parser
-    val parsedProgram = parser.apply("(2 * 12.1 + 3) % 1.5")
-    println(parsedProgram)
+    val interpreter = new ProgramInterpreter
 
-    val inferencer = new Inferencer
-    val typedProgram = inferencer.inferProgram(parsedProgram)
-    println(typedProgram)
+    interpreter.run("var x = 4")
+    val result = interpreter.run("x")
 
-    val interpreter = new Interpreter
-    val result = interpreter.interpProgram(typedProgram)
+    println(result)
+
+    interpreter.reset()
+
+    interpreter.run("x")
+
     println(result)
   }
 }
