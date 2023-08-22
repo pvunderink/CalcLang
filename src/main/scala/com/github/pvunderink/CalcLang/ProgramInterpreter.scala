@@ -2,10 +2,10 @@ package com.github.pvunderink.CalcLang
 
 import com.github.pvunderink.CalcLang.CalcLang.{Inferencer, Interpreter, Parser, Value}
 
-class ProgramInterpreter(prelude: Option[String]) {
+class ProgramInterpreter(prelude: String) {
 
   def this() = {
-    this(None)
+    this("")
   }
 
   val parser = new Parser
@@ -22,10 +22,8 @@ class ProgramInterpreter(prelude: Option[String]) {
   def run(program: String): Value = {
     if (!preludeInterpreted) {
       preludeInterpreted = true
-      prelude match {
-        case Some(prelude) =>
-          run(prelude)
-        case None => ()
+      if (!prelude.isBlank) {
+        run(prelude)
       }
     }
 
