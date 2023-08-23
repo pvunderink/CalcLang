@@ -511,7 +511,8 @@ object CalcLang {
           storage += value
           storage.length - 1
         } else {
-          val loc = freeLocs.drop(1).head
+          val loc = freeLocs.head
+          freeLocs.remove(loc)
           storage(loc) = value
           loc
         }

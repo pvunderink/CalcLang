@@ -13,7 +13,7 @@ object Main {
 
     val result = interpreter.run(program)
 
-    interpreter.run("func()")
+    interpreter.run("(func())()")
 
     println(result)
   }
