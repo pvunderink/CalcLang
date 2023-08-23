@@ -6,19 +6,19 @@ object Main {
 
     val program =
       """
-        | def error() {
-        |   var x = 0;
-        |   def f () { x = 42 };
-        |   f
+        | var x = 0;
+        | def func() {
+        |   var y = x;
+        |   y
         | }
+        | func();
+        | x
         |""".stripMargin
 
     println(interpreter.parser.apply(program))
 
-    interpreter.run(program)
+    val result = interpreter.run(program)
 
-    val result = interpreter.run("error()")
-
-    println(result)
+    println(result);
   }
 }
