@@ -1,6 +1,6 @@
 package com.github.pvunderink.CalcLang
 
-import scala.annotation.tailrec
+import scala.annotation.{tailrec, unused}
 import scala.collection.mutable
 import scala.util.parsing.combinator.RegexParsers
 
@@ -27,13 +27,15 @@ object CalcLang {
 
   private final case class Remainder(l: Expr, r: Expr) extends Expr
 
-  private final case class FunApp(id: String, args: List[Expr]) extends Expr
+  private final case class FunApp(expr: Expr, args: List[Expr]) extends Expr
 
-  private final case class FunDef(id: String, params: List[(String, Type)], body: List[Expr]) extends Expr
+  private final case class Fun(params: List[(String, Type)], body: List[Expr]) extends Expr
 
   private final case class Assign(id: String, e: Expr) extends Expr
 
   private final case class Reassign(id: String, e: Expr) extends Expr
+
+  private final case class Void() extends Expr
 
   sealed trait TypedExpr {
     def typ: Type
@@ -51,7 +53,7 @@ object CalcLang {
     override def typ: Type = StrT()
   }
 
-  private final case class TypedVar(id: String, typ: Type) extends TypedExpr
+  private final case class TypedVar(id: String, typ: Type, region: Inferencer.Region) extends TypedExpr
 
   private final case class TypedNeg(e: TypedExpr) extends TypedExpr {
     override def typ: Type = NumT()
@@ -81,9 +83,15 @@ object CalcLang {
     override def typ: Type = NumT()
   }
 
-  private final case class TypedFunApp(id: String, args: List[TypedExpr], typ: Type) extends TypedExpr
+  private final case class TypedFunApp(fun: TypedExpr, args: List[TypedExpr], ret: Type) extends TypedExpr {
+    override def typ: Type = ret
+  }
 
-  private final case class TypedFunDef(id: String, params: List[(String, Type)], body: List[TypedExpr], ret: Type) extends TypedExpr {
+  private final case class TypedFun(params: List[(String, Type)],
+                                    body: List[TypedExpr],
+                                    ret: Type,
+                                    env: List[(String, Type)],
+                                    regionSet: Set[Inferencer.Region]) extends TypedExpr {
     override def typ: Type = FunT(params.map(_._2), ret)
   }
 
@@ -91,6 +99,9 @@ object CalcLang {
 
   private final case class TypedReassign(id: String, e: TypedExpr, typ: Type) extends TypedExpr
 
+  private final case class TypedVoid() extends TypedExpr {
+    override def typ: Type = VoidT()
+  }
 
   sealed trait Value
 
@@ -106,10 +117,17 @@ object CalcLang {
     override def toString: String = str
   }
 
-  private final case class FunVal(id: String, params: List[(String, Type)], body: List[TypedExpr], ret: Type) extends Value {
+  private final case class FunVal(params: List[(String, Type)], body: List[TypedExpr], ret: Type, env: List[(String, Value)]) extends Value {
     override def toString: String = s"(${if (params.nonEmpty) params.map(t => t._2.toString).reduce((acc, elem) => acc + ", " + elem) else ""}) -> ${ret.toString}"
   }
 
+  private final case class InternalFunVal(typ: FunT, executor: List[Value] => Value) extends Value {
+    override def toString: String = typ.toString
+  }
+
+  private final case class VoidVal() extends Value {
+    override def toString: String = "void"
+  }
 
   sealed trait Type
 
@@ -129,37 +147,41 @@ object CalcLang {
     override def toString: String = s"(${if (args.nonEmpty) args.map(t => t.toString).reduce((acc, elem) => acc + ", " + elem) else ""}) -> ${ret.toString}"
   }
 
-  private final val builtin_functions: Map[String, (FunT, List[Value] => Value)] = Map(
+  private final case class VoidT() extends Type {
+    override def toString: String = "void"
+  }
+
+  private final val builtin_functions: Map[String, InternalFunVal] = Map(
     "sqrt" ->
-      (
+      InternalFunVal(
         FunT(List(NumT()), NumT()),
         args => args.head match {
           case NumVal(n) => NumVal(math.sqrt(n))
         }
       ),
     "log" ->
-      (
+      InternalFunVal(
         FunT(List(NumT()), NumT()),
         args => args.head match {
           case NumVal(n) => NumVal(math.log(n))
         }
       ),
     "log10" ->
-      (
+      InternalFunVal(
         FunT(List(NumT()), NumT()),
         args => args.head match {
           case NumVal(n) => NumVal(math.log10(n))
         }
       ),
     "exp" ->
-      (
+      InternalFunVal(
         FunT(List(NumT()), NumT()),
         args => args.head match {
           case NumVal(n) => NumVal(math.exp(n))
         }
       ),
     "pow" ->
-      (
+      InternalFunVal(
         FunT(List(NumT(), NumT()), NumT()),
         args => (args.head, args.tail.head) match {
           case (NumVal(x), NumVal(y)) => NumVal(math.pow(x, y))
@@ -187,7 +209,9 @@ object CalcLang {
 
     private def variable: Parser[Expr] = id ^^ { id => Var(id) }
 
-    private def factor_without_unop: Parser[Expr] = number | bool | str | fun_app | fun_def | assign | reassign | variable | "(" ~> expr <~ ")"
+    private def factor_without_unop: Parser[Expr] = number | bool | str | fun_app | fun_def | assign | reassign | variable | function | grouped_expr
+
+    private def grouped_expr: Parser[Expr] = "(" ~> expr <~ ")"
 
     private def factor: Parser[Expr] = factor_without_unop | unary_op
 
@@ -205,8 +229,8 @@ object CalcLang {
 
     private def typ: Parser[Type] = keyword("num") ^^ { _ => NumT() } | keyword("bool") ^^ { _ => BoolT() } | keyword("str") ^^ { _ => StrT() } | funtyp
 
-    private def funtyp: Parser[Type] = "(" ~ repsep(typ, ",") ~ ")" ~ "->" ~ typ ^^ {
-      case "(" ~ params ~ ")" ~ "->" ~ ret => FunT(params, ret)
+    private def funtyp: Parser[Type] = ("(" ~> repsep(typ, ",") <~ ")" <~ "->") ~ typ ^^ {
+      case params ~ ret => FunT(params, ret)
     }
 
     private def fun_param: Parser[(String, Type)] = id ~ ":" ~ typ ^^ {
@@ -215,12 +239,16 @@ object CalcLang {
 
     private def fun_params: Parser[List[(String, Type)]] = repsep(fun_param, ",")
 
-    private def fun_def: Parser[Expr] = keyword("def") ~ id ~ "(" ~ fun_params ~ ")" ~ "{" ~ seq ~ "}" ^^ {
-      case "def" ~ id ~ "(" ~ params ~ ")" ~ "{" ~ body ~ "}" => FunDef(id, params, body)
+    private def fun_def: Parser[Expr] = keyword("def") ~ id ~ function ^^ {
+      case "def" ~ id ~ fun => Assign(id, fun)
     }
 
-    private def fun_app: Parser[Expr] = id ~ "(" ~ repsep(expr, ",") ~ ")" ^^ {
-      case funName ~ "(" ~ list ~ ")" => FunApp(funName, list)
+    private def function: Parser[Fun] = "(" ~ fun_params ~ ")" ~ "{" ~ seq ~ "}" ^^ {
+      case "(" ~ params ~ ")" ~ "{" ~ body ~ "}" => Fun(params, body)
+    }
+
+    private def fun_app: Parser[Expr] = (variable | grouped_expr) ~ "(" ~ repsep(expr, ",") ~ ")" ^^ {
+      case expr ~ "(" ~ list ~ ")" => FunApp(expr, list)
     }
 
     private def term: Parser[Expr] = factor ~ rep("*" ~ factor | "/" ~ factor | "%" ~ factor) ^^ {
@@ -238,7 +266,14 @@ object CalcLang {
       }
     }
 
-    private def seq: Parser[List[Expr]] = repsep(expr, ";")
+    private def stmt: Parser[Expr] = expr <~ ";" | fun_def
+
+    private def seq: Parser[List[Expr]] = rep(stmt) ~ opt(expr) ^^ {
+      case exprs ~ Some(expr) => exprs ++ List(expr)
+      case exprs ~ None => exprs ++ List(Void())
+      case Nil ~ Some(expr) => List(expr)
+      case Nil ~ None => List(Void())
+    }
 
     def apply(input: String): List[Expr] = parseAll(seq, input) match {
       case Success(result, _) => result
@@ -246,37 +281,48 @@ object CalcLang {
     }
   }
 
+  object Inferencer {
+    final case class Region(id: Integer)
+  }
+
 
   class Inferencer {
+
+    import Inferencer.Region
+
     private final case class TypeException(msg: String) extends RuntimeException(msg)
 
-    private type Env = List[(String, Type)]
+    private type Env = List[(String, Type, Region)]
+    private type Context = List[Region]
+    private type LookupFun = (String, Env, Boolean) => (Type, Region)
 
-    private def expectType(expr: Expr, expected: Type, env: Env): (TypedExpr, Env) = infer(expr, env) match {
-      case (expr, newEnv) if expr.typ == expected => (expr, newEnv)
-      case (expr, _) => throw TypeException(s"Expected $expected, but found ${expr.typ}.")
-    }
+    private def expectType(expr: Expr, expected: Type, env: Env, region: Region, ctx: Context, lookupFun: LookupFun): (TypedExpr, Env) =
+      infer(expr, env, region, ctx, lookupFun) match {
+        case (expr, newEnv) if expr.typ == expected => (expr, newEnv)
+        case (expr, _) => throw TypeException(s"Expected $expected, but found ${expr.typ}.")
+      }
 
-    private def expectEach(actual: List[Expr], expected: Type, env: Env): (List[TypedExpr], Env) = actual match {
-      case expr :: exprs =>
-        val (typedExpr, newEnv) = expectType(expr, expected, env)
-        val t = expectEach(exprs, expected, newEnv)
-        (typedExpr :: t._1, t._2)
-      case Nil => (Nil, env)
-    }
+    private def expectEach(actual: List[Expr], expected: Type, env: Env, region: Region, ctx: Context, lookupFun: LookupFun): (List[TypedExpr], Env) =
+      actual match {
+        case expr :: exprs =>
+          val (typedExpr, newEnv) = expectType(expr, expected, env, region, ctx, lookupFun)
+          val t = expectEach(exprs, expected, newEnv, region, ctx, lookupFun)
+          (typedExpr :: t._1, t._2)
+        case Nil => (Nil, env)
+      }
 
-    private def expectBoth(left: Expr, right: Expr, expected: Type, env: Env): (TypedExpr, TypedExpr, Env) = {
-      expectEach(List(left, right), expected, env) match {
+    private def expectBoth(left: Expr, right: Expr, expected: Type, env: Env, region: Region, ctx: Context, lookupFun: LookupFun): (TypedExpr, TypedExpr, Env) = {
+      expectEach(List(left, right), expected, env, region, ctx, lookupFun) match {
         case (typedLeft :: typedRight :: Nil, env) => (typedLeft, typedRight, env)
       }
     }
 
-    private def expectAll(actual: List[Expr], expected: List[Type], env: Env): (List[TypedExpr], Env) = actual match {
+    private def expectAll(actual: List[Expr], expected: List[Type], env: Env, region: Region, ctx: Context, lookupFun: LookupFun): (List[TypedExpr], Env) = actual match {
       case expr :: exprs =>
         expected match {
           case expected :: types =>
-            val (typedExpr, newEnv) = expectType(expr, expected, env)
-            val result = expectAll(exprs, types, newEnv)
+            val (typedExpr, newEnv) = expectType(expr, expected, env, region, ctx, lookupFun)
+            val result = expectAll(exprs, types, newEnv, region, ctx, lookupFun)
             (typedExpr :: result._1, result._2)
           case Nil => throw TypeException("More expressions than expected.")
         }
@@ -284,22 +330,24 @@ object CalcLang {
       case Nil => (Nil, env)
     }
 
+    private def lookup(id: String, env: Env, @unused alter: Boolean): (Type, Region) = safeLookup(id, env).getOrElse(throw TypeException(s"'$id' is not defined."))
+
     @tailrec
-    private def lookup(id: String, env: Env): Type = env match {
-      case (id2, typ) :: _ if id == id2 => typ
-      case _ :: tail => lookup(id, tail)
+    private def safeLookup(id: String, env: Env): Option[(Type, Region)] = env match {
+      case (id2, typ, reg) :: _ if id == id2 => Some(typ, reg)
+      case _ :: tail => safeLookup(id, tail)
       case Nil => builtin_constants.get(id) match {
-        case Some(t) => t._1
+        case Some(t) => Some(t._1, globalRegion)
         case None => builtin_functions.get(id) match {
-          case Some(t) => t._1
-          case None => throw TypeException(s"'$id' is not defined.")
+          case Some(fun) => Some(fun.typ, globalRegion)
+          case None => None
         }
       }
     }
 
-    private def tryInferConcat(l: Expr, r: Expr, env: Env): Option[(TypedExpr, Env)] = {
-      val (leftExpr, newEnv1) = infer(l, env)
-      val (rightExpr, newEnv2) = infer(r, newEnv1)
+    private def tryInferConcat(l: Expr, r: Expr, env: Env, region: Region, ctx: Context, lookupFun: LookupFun): Option[(TypedExpr, Env)] = {
+      val (leftExpr, newEnv1) = infer(l, env, region, ctx, lookupFun)
+      val (rightExpr, newEnv2) = infer(r, newEnv1, region, ctx, lookupFun)
 
       if (leftExpr.typ == StrT() || rightExpr.typ == StrT())
         Some(TypedConcat(leftExpr, rightExpr), newEnv2)
@@ -314,68 +362,130 @@ object CalcLang {
     }
 
     def inferProgram(exprs: List[Expr]): List[TypedExpr] = {
-      val (typedExprs, newEnv) = inferAll(exprs, env)
+      val (typedExprs, newEnv) = inferAll(exprs, env, globalRegion, List(globalRegion), lookup)
       this.env = newEnv
       typedExprs
     }
 
-    private def inferAll(exprs: List[Expr], env: Env): (List[TypedExpr], Env) = exprs.foldLeft[(List[TypedExpr], Env)]((Nil, env))((t, expr) => {
-      val (typedExpr, newEnv) = infer(expr, t._2)
-      (t._1 ++ List(typedExpr), newEnv)
-    })
+    private def inferAll(exprs: List[Expr], env: Env, region: Region, ctx: Context, lookupFun: LookupFun): (List[TypedExpr], Env) =
+      exprs.foldLeft[(List[TypedExpr], Env)]((Nil, env))((t, expr) => {
+        val (typedExpr, newEnv) = infer(expr, t._2, region, ctx, lookupFun)
+        (t._1 ++ List(typedExpr), newEnv)
+      })
 
-    private def infer(expr: Expr, env: Env): (TypedExpr, Env) = expr match {
+    private def infer(expr: Expr, env: Env, region: Region, ctx: Context, lookupFun: LookupFun): (TypedExpr, Env) = expr match {
       case Num(n) => (TypedNum(n), env)
       case Bool(b) => (TypedBool(b), env)
       case Str(s) => (TypedStr(s), env)
-      case Var(id) => (TypedVar(id, lookup(id, env)), env)
+      case Void() => (TypedVoid(), env)
+      case Var(id) =>
+        val (typ, reg) = lookupFun(id, env, false)
+        (TypedVar(id, typ, reg), env)
       case Neg(e) =>
-        val (te, newEnv) = expectType(e, NumT(), env)
+        val (te, newEnv) = expectType(e, NumT(), env, region, ctx, lookupFun)
         (TypedNeg(te), newEnv)
-      case Add(l, r) => tryInferConcat(l, r, env) match {
+      case Add(l, r) => tryInferConcat(l, r, env, region, ctx, lookupFun) match {
         case Some(concat) => concat
         case None =>
-          val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env)
+          val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env, region, ctx, lookupFun)
           (TypedAdd(tl, tr), newEnv)
       }
       case Sub(l, r) =>
-        val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env)
+        val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env, region, ctx, lookupFun)
         (TypedSub(tl, tr), newEnv)
       case Mul(l, r) =>
-        val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env)
+        val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env, region, ctx, lookupFun)
         (TypedMul(tl, tr), newEnv)
       case Div(l, r) =>
-        val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env)
+        val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env, region, ctx, lookupFun)
         (TypedDiv(tl, tr), newEnv)
       case Remainder(l, r) =>
-        val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env)
+        val (tl, tr, newEnv) = expectBoth(l, r, NumT(), env, region, ctx, lookupFun)
         (TypedRemainder(tl, tr), newEnv)
-      case FunApp(id, args) =>
-        lookup(id, env) match {
-          case FunT(params, ret) =>
-            val (typedArgs, newEnv) = expectAll(args, params, env)
-            (TypedFunApp(id, typedArgs, ret), newEnv)
-          case _ => throw TypeException(s"'$id is not a function")
+      case FunApp(expr, args) =>
+        infer(expr, env, region, ctx, lookupFun) match {
+          case (expr, newEnv1) => expr.typ match {
+            case FunT(params, ret) =>
+              val (typedArgs, newEnv2) = expectAll(args, params, newEnv1, region, ctx, lookupFun)
+              (TypedFunApp(expr, typedArgs, ret), newEnv2)
+            case typ => throw TypeException(s"Expected a function, but got $typ")
+          }
         }
-      case FunDef(id, params, body) =>
-        val (typedBody, _) = inferAll(body, params ++ env)
-        val funExpr = TypedFunDef(id, params, typedBody, typedBody.last.typ)
-        (funExpr, (id, funExpr.typ) :: env)
+      case Fun(params, body) =>
+        val freeVariables: mutable.ListBuffer[(String, Type)] = mutable.ListBuffer.empty
+        val regionSet: mutable.Set[Region] = mutable.Set.empty
+
+        val parentEnv = env
+
+        // Custom lookup function that keeps track of accesses outside the local scope
+        def customLookupFun(id: String, localEnv: Env, alter: Boolean): (Type, Region) = safeLookup(id, localEnv) match {
+          case Some(typ) => typ
+          case None => safeLookup(id, parentEnv) match {
+            case Some((typ, reg)) =>
+              freeVariables.append((id, typ))
+              if (alter) {
+                // If the variable is being changed, add it to the region set
+                regionSet.add(reg)
+              }
+              (typ, reg)
+            case None => throw TypeException(s"'$id' is not defined.")
+          }
+        }
+
+        val funRegion = newRegion()
+        val (typedBody, _) = inferAll(body, params.map(p => (p._1, p._2, funRegion)), funRegion, region :: ctx, customLookupFun)
+        val retExprType = typedBody.last
+
+        retExprType match {
+          case TypedFun(_, _, _, _, regionSet) =>
+            if (!isValid(regionSet, ctx))
+              throw TypeException(s"Cannot return a function that alters variables in a scope that will no longer exist after this function exits.")
+          case _ => ()
+        }
+
+        (TypedFun(params, typedBody, retExprType.typ, freeVariables.toList, regionSet.toSet), env)
       case Assign(id, e) =>
-        val (typedExpr, newEnv) = infer(e, env)
-        (TypedAssign(id, typedExpr, typedExpr.typ), (id, typedExpr.typ) :: newEnv)
+        val (typedExpr, newEnv) = infer(e, env, region, ctx, lookupFun)
+
+        typedExpr.typ match {
+          case VoidT() => throw TypeException("Cannot assign void to a variable.")
+          case _ => ()
+        }
+
+        (TypedAssign(id, typedExpr, typedExpr.typ), (id, typedExpr.typ, region) :: newEnv)
       case Reassign(id, e) =>
-        val typ = lookup(id, env)
-        val (typedExpr, newEnv) = expectType(e, typ, env)
+        val (typ, _) = lookupFun(id, env, true)
+        val (typedExpr, newEnv) = expectType(e, typ, env, region, ctx, lookupFun)
         (TypedReassign(id, typedExpr, typedExpr.typ), newEnv)
     }
+
+    private var global_region_id = 0
+    private val globalRegion = newRegion() // IMPORTANT: Must be after `global_region_id = 0`
+
+    // Region logic
+    private def newRegion(): Region = {
+      val region = Region(global_region_id)
+      global_region_id += 1
+      region
+    }
+
+    @tailrec
+    private def isLive(region: Region, ctx: Context): Boolean = ctx match {
+      case r2 :: _ if region.id == r2.id => true
+      case _ :: tail => isLive(region, tail)
+      case Nil => false
+    }
+
+    private def isValid(set: Set[Region], ctx: Context): Boolean = set.forall(isLive(_, ctx))
   }
+
 
   class Interpreter {
 
-    private final case class InterpException(msg: String) extends RuntimeException(msg)
-
     private type Loc = Int
+    private type Env = List[(String, Loc)]
+
+    private final case class InterpException(msg: String) extends RuntimeException(msg)
 
     private class Memory {
       private val storage: mutable.ArrayBuffer[Value] = mutable.ArrayBuffer.empty
@@ -405,7 +515,6 @@ object CalcLang {
       }
     }
 
-    private type Env = List[(String, Loc)]
     private var memory = new Memory
     private var env: Env = Nil
 
@@ -435,7 +544,8 @@ object CalcLang {
       case TypedNum(n) => (NumVal(n), localEnv)
       case TypedBool(b) => (BoolVal(b), localEnv)
       case TypedStr(str) => (StrVal(str), localEnv)
-      case TypedVar(id, _) => (lookup(id, localEnv ++ parentEnv), localEnv)
+      case TypedVar(id, _, _) => (lookup(id, localEnv ++ parentEnv), localEnv)
+      case TypedVoid() => (VoidVal(), localEnv)
       case TypedNeg(e) => interp(e, localEnv, parentEnv) match {
         case (NumVal(n), newEnv) => (NumVal(-n), newEnv)
       }
@@ -469,28 +579,28 @@ object CalcLang {
         val (newValue, newEnv) = interp(expr, localEnv, parentEnv)
         memory.update(loc, newValue)
         (newValue, newEnv)
-      case TypedFunDef(id, params, body, ret) =>
-        val fun = FunVal(id, params, body, ret)
-        val loc = memory.store(fun)
-        (fun, (id, loc) :: localEnv)
-      case TypedFunApp(id, args, _) =>
+      case TypedFun(params, body, ret, funEnv, _) =>
+        (FunVal(params, body, ret, funEnv.map(t => (t._1, lookup(t._1, localEnv ++ parentEnv)))), localEnv)
+      case TypedFunApp(expr, args, _) =>
         // Interp arguments
-        val (argVals, newEnv) = args.foldLeft[(List[Value], Env)]((Nil, localEnv))((t, arg) => {
+        val (argVals, newEnv1) = args.foldLeft[(List[Value], Env)]((Nil, localEnv))((t, arg) => {
           val (value, newEnv) = interp(arg, t._2, parentEnv)
           (t._1 ++ List(value), newEnv)
         })
 
-        safeLookup(id, localEnv ++ parentEnv) match {
-          case Some(FunVal(_, params, body, _)) =>
+        interp(expr, newEnv1, parentEnv) match {
+          case (funVal: FunVal, newEnv2) =>
             // Create new local env with function arguments
-            val newLocalEnv = params.map(_._1).zip(argVals).map(t => (t._1, memory.store(t._2)))
+            val funEnv = (funVal.env ++ funVal.params.map(_._1).zip(argVals)).map(t => (t._1, memory.store(t._2)))
 
-            val (returnValue, funEnv) = interpAll(body, newLocalEnv, localEnv ++ parentEnv)
+            val (returnValue, newFunEnv) = interpAll(funVal.body, funEnv, Nil)
+
             // free local memory
-            funEnv.foreach(t => memory.free(t._2))
+            newFunEnv.foreach(t => memory.free(t._2))
 
-            (returnValue, newEnv)
-          case None => (applyBuiltinFunction(id, argVals), localEnv)
+            (returnValue, newEnv2)
+          case (internalFunVal: InternalFunVal, newEnv) =>
+            (internalFunVal.executor(argVals), newEnv)
         }
     }
 
@@ -498,11 +608,6 @@ object CalcLang {
       val (NumVal(l), newEnv) = interp(left, localEnv, parentEnv)
       val (NumVal(r), newEnv2) = interp(right, newEnv, parentEnv)
       (NumVal(op(l, r)), newEnv2)
-    }
-
-    private def applyBuiltinFunction(id: String, args: List[Value]): Value = builtin_functions.get(id) match {
-      case Some((_, fun)) => fun(args)
-      case None => throw InterpException(s"Function '$id' is not defined.")
     }
 
     private def locLookup(id: String, env: Env): Loc = safeLocLookup(id, env) match {
@@ -521,7 +626,7 @@ object CalcLang {
     private def safeLookup(id: String, env: Env): Option[Value] = env match {
       case (id2, loc) :: _ if id2 == id => Some(memory.load(loc))
       case _ :: tail => safeLookup(id, tail)
-      case Nil => builtin_constants.get(id).map(_._2)
+      case Nil => builtin_constants.get(id).map(_._2).orElse(builtin_functions.get(id))
     }
 
     private def lookup(id: String, env: Env): Value = safeLookup(id, env) match {

@@ -4,9 +4,49 @@ object Main {
   def main(args: Array[String]): Unit = {
     val interpreter = new ProgramInterpreter
 
-    println(interpreter.parser.apply("-4"))
+    val program =
+      """
+        | def func() {
+        |   var y = 10;
+        |   () {y}
+        | }
+        | func()
+        |""".stripMargin
 
-    val result = interpreter.run("-4")
+    """
+      | def func() {
+      |   var y = 10;
+      |   y
+      | };
+      | func()
+      | // allowed
+      |
+      | def func() {
+      |   var y = 10;
+      |   () { y }
+      | };
+      | func()
+      | // allowed
+      |
+      | def func() {
+      |   var y = 10;
+      |   var f = () { y = y + 1 };
+      |   f()
+      | };
+      | func()
+      | // allowed
+      |
+      | def func() {
+      |   var y = 10;
+      |   () { y = y + 1 }
+      | };
+      | func()
+      | // not allowed
+      |""".stripMargin
+
+    println(interpreter.parser.apply(program))
+
+    val result = interpreter.run(program)
     println(result)
   }
 }
