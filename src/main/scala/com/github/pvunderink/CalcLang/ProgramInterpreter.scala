@@ -11,13 +11,15 @@ class ProgramInterpreter(prelude: String) {
   val parser = new Parser
   val inferencer = new Inferencer
   val interpreter: Interpreter = new Interpreter
-  var preludeInterpreted = false
+  private var preludeInterpreted = false
 
-  def reset(): Unit = {
+  def reset: Unit = {
     inferencer.reset()
     interpreter.reset()
     preludeInterpreted = false
   }
+
+  def usage: Int = interpreter.memory.usage
 
   def run(program: String): Value = {
     if (!preludeInterpreted) {

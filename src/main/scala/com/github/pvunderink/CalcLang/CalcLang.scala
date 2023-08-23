@@ -5,6 +5,7 @@ import scala.collection.mutable
 import scala.util.parsing.combinator.RegexParsers
 
 object CalcLang {
+
   sealed trait Expr
 
   private final case class Num(n: Double) extends Expr
@@ -103,30 +104,44 @@ object CalcLang {
     override def typ: Type = VoidT()
   }
 
-  sealed trait Value
+  sealed trait Value {
+    def size: Int
+  }
 
   private final case class NumVal(n: Double) extends Value {
     override def toString: String = n.toString
+
+    override def size: Int = 8
   }
 
   private final case class BoolVal(b: Boolean) extends Value {
     override def toString: String = b.toString
+
+    override def size: Int = 1
   }
 
   private final case class StrVal(str: String) extends Value {
     override def toString: String = str
+
+    override def size: Int = str.length * 2
   }
 
   private final case class FunVal(params: List[(String, Type)], body: List[TypedExpr], ret: Type, env: List[(String, Value)]) extends Value {
     override def toString: String = s"(${if (params.nonEmpty) params.map(t => t._2.toString).reduce((acc, elem) => acc + ", " + elem) else ""}) -> ${ret.toString}"
+
+    override def size: Int = env.map(_._2.size).sum
   }
 
   private final case class InternalFunVal(typ: FunT, executor: List[Value] => Value) extends Value {
     override def toString: String = typ.toString
+
+    override def size: Int = 0
   }
 
   private final case class VoidVal() extends Value {
     override def toString: String = "void"
+
+    override def size: Int = 0
   }
 
   sealed trait Type
@@ -487,35 +502,52 @@ object CalcLang {
 
     private final case class InterpException(msg: String) extends RuntimeException(msg)
 
-    private class Memory {
+    class Memory {
       private val storage: mutable.ArrayBuffer[Value] = mutable.ArrayBuffer.empty
-      private val freeLocs: mutable.Queue[Loc] = mutable.Queue.empty
+      private val freeLocs: mutable.Set[Loc] = mutable.Set.empty
 
       def store(value: Value): Loc = {
+        println(s"Store: $value")
         if (freeLocs.isEmpty) {
           storage += value
           storage.length - 1
         } else {
-          val loc = freeLocs.dequeue()
+          val loc = freeLocs.drop(1).head
           storage(loc) = value
           loc
         }
       }
 
       def update(loc: Loc, value: Value): Unit = {
+        println(s"Update: $loc -> $value")
         storage(loc) = value
       }
 
       def load(loc: Loc): Value = {
+        println(s"Load: $loc")
         storage(loc)
       }
 
       def free(loc: Loc): Unit = {
-        freeLocs.enqueue(loc)
+        println(s"Free: $loc")
+        freeLocs.add(loc)
       }
+
+      def usage: Int =
+        storage.view.zipWithIndex.map(t => {
+          if (!freeLocs.contains(t._2)) {
+            t._1.size
+          } else {
+            0
+          }
+        }).sum
+
     }
 
-    private var memory = new Memory
+    private var internal_memory = new Memory
+
+    def memory: Memory = internal_memory
+
     private var env: Env = Nil
 
     def interpProgram(exprs: List[TypedExpr]): Value = {
@@ -525,7 +557,7 @@ object CalcLang {
     }
 
     def reset(): Unit = {
-      memory = new Memory
+      internal_memory = new Memory
       env = Nil
     }
 

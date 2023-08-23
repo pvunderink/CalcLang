@@ -6,11 +6,7 @@ object Main {
 
     val program =
       """
-        | def func() {
-        |   var y = 10;
-        |   () {y}
-        | }
-        | func()
+        | var str = "some string"
         |""".stripMargin
 
     """
