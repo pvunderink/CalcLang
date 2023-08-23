@@ -507,7 +507,6 @@ object CalcLang {
       private val freeLocs: mutable.Set[Loc] = mutable.Set.empty
 
       def store(value: Value): Loc = {
-        println(s"Store: $value")
         if (freeLocs.isEmpty) {
           storage += value
           storage.length - 1
@@ -519,17 +518,14 @@ object CalcLang {
       }
 
       def update(loc: Loc, value: Value): Unit = {
-        println(s"Update: $loc -> $value")
         storage(loc) = value
       }
 
       def load(loc: Loc): Value = {
-        println(s"Load: $loc")
         storage(loc)
       }
 
       def free(loc: Loc): Unit = {
-        println(s"Free: $loc")
         freeLocs.add(loc)
       }
 
