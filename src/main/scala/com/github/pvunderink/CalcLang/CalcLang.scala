@@ -93,7 +93,7 @@ object CalcLang {
                                     ret: Type,
                                     env: List[(String, Type)],
                                     regionSet: Set[Inferencer.Region]) extends TypedExpr {
-    override def typ: Type = FunT(params.map(_._2), ret)
+    override def typ: Type = FunT(params.map(_._2), ret, Some(regionSet))
   }
 
   private final case class TypedAssign(id: String, e: TypedExpr, typ: Type) extends TypedExpr
@@ -158,8 +158,15 @@ object CalcLang {
     override def toString: String = "str"
   }
 
-  private final case class FunT(args: List[Type], ret: Type) extends Type {
+  private final case class FunT(args: List[Type], ret: Type, regionSet: Option[Set[Inferencer.Region]]) extends Type {
     override def toString: String = s"(${if (args.nonEmpty) args.map(t => t.toString).reduce((acc, elem) => acc + ", " + elem) else ""}) -> ${ret.toString}"
+
+    override def equals(obj: Any): Boolean = obj match {
+      case FunT(args, ret, _) => args == this.args && ret == this.ret
+      case _ => false
+    }
+
+    override def hashCode(): Int = args.hashCode ^ ret.hashCode
   }
 
   private final case class VoidT() extends Type {
@@ -169,35 +176,35 @@ object CalcLang {
   private final val builtin_functions: Map[String, InternalFunVal] = Map(
     "sqrt" ->
       InternalFunVal(
-        FunT(List(NumT()), NumT()),
+        FunT(List(NumT()), NumT(), Some(Set())),
         args => args.head match {
           case NumVal(n) => NumVal(math.sqrt(n))
         }
       ),
     "log" ->
       InternalFunVal(
-        FunT(List(NumT()), NumT()),
+        FunT(List(NumT()), NumT(), Some(Set())),
         args => args.head match {
           case NumVal(n) => NumVal(math.log(n))
         }
       ),
     "log10" ->
       InternalFunVal(
-        FunT(List(NumT()), NumT()),
+        FunT(List(NumT()), NumT(), Some(Set())),
         args => args.head match {
           case NumVal(n) => NumVal(math.log10(n))
         }
       ),
     "exp" ->
       InternalFunVal(
-        FunT(List(NumT()), NumT()),
+        FunT(List(NumT()), NumT(), Some(Set())),
         args => args.head match {
           case NumVal(n) => NumVal(math.exp(n))
         }
       ),
     "pow" ->
       InternalFunVal(
-        FunT(List(NumT(), NumT()), NumT()),
+        FunT(List(NumT(), NumT()), NumT(), Some(Set())),
         args => (args.head, args.tail.head) match {
           case (NumVal(x), NumVal(y)) => NumVal(math.pow(x, y))
         }
@@ -243,7 +250,7 @@ object CalcLang {
     private def typ: Parser[Type] = keyword("num") ^^ { _ => NumT() } | keyword("bool") ^^ { _ => BoolT() } | keyword("str") ^^ { _ => StrT() } | funtyp
 
     private def funtyp: Parser[Type] = ("(" ~> repsep(typ, ",") <~ ")" <~ "->") ~ typ ^^ {
-      case params ~ ret => FunT(params, ret)
+      case params ~ ret => FunT(params, ret, None)
     }
 
     private def fun_param: Parser[(String, Type)] = (id <~ ":") ~ typ ^^ {
@@ -418,7 +425,7 @@ object CalcLang {
       case FunApp(expr, args) =>
         infer(expr, env, region, ctx, lookupFun) match {
           case (expr, newEnv1) => expr.typ match {
-            case FunT(params, ret) =>
+            case FunT(params, ret, _) =>
               val (typedArgs, newEnv2) = expectAll(args, params, newEnv1, region, ctx, lookupFun)
               (TypedFunApp(expr, typedArgs, ret), newEnv2)
             case typ => throw TypeException(s"Expected a function, but got $typ")
@@ -449,10 +456,12 @@ object CalcLang {
         val (typedBody, _) = inferAll(body, params.map(p => (p._1, p._2, funRegion)), funRegion, region :: ctx, customLookupFun)
         val retExprType = typedBody.last
 
-        retExprType match {
-          case TypedFun(_, _, _, _, regionSet) =>
+        retExprType.typ match {
+          case FunT(_, _, Some(regionSet)) =>
             if (!isValid(regionSet, ctx))
-              throw TypeException(s"Cannot return a function that alters variables in a scope that will no longer exist after this function exits.")
+              throw TypeException(s"Cannot return a function that alters variables in a scope that does not outlive the returning function.")
+          case FunT(_, _, None) =>
+            throw TypeException(s"Region set has not been calculated, this should not happen and is a bug in the type checker.")
           case _ => ()
         }
 
