@@ -267,8 +267,8 @@ object CalcLang {
       case params ~ body => Fun(params, body)
     }
 
-    private def fun_app: Parser[Expr] = ((variable | grouped_expr) <~ "(") ~ repsep(expr, ",") <~ ")" ^^ {
-      case expr ~ list => FunApp(expr, list)
+    private def fun_app: Parser[Expr] = (variable | grouped_expr) ~ rep1("(" ~> repsep(expr, ",") <~ ")") ^^ {
+      case expr ~ list => list.foldLeft(expr)((expr, params) => FunApp(expr, params))
     }
 
     private def term: Parser[Expr] = factor ~ rep("*" ~ factor | "/" ~ factor | "%" ~ factor) ^^ {

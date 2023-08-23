@@ -8,10 +8,9 @@ object Main {
       """
         | var x = 0;
         | def func() {
-        |   var y = x;
-        |   y
+        |   (y: num) { x = y }
         | }
-        | func();
+        | func()(42);
         | x
         |""".stripMargin
 
