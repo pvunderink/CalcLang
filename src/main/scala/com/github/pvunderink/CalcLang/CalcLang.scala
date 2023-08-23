@@ -220,7 +220,7 @@ object CalcLang {
 
     private def str: Parser[Expr] = """"[\w\u0020-\u0021\u0023-\u1eff]*"""".r ^^ { s => Str(s.substring(1, s.length - 1)) }
 
-    private def id: Parser[String] = """[a-zA-Z][a-zA-Z0-9]*""".r
+    private def id: Parser[String] = """[a-zA-Z][a-zA-Z0-9_]*""".r
 
     private def variable: Parser[Expr] = id ^^ { id => Var(id) }
 
@@ -230,16 +230,14 @@ object CalcLang {
 
     private def factor: Parser[Expr] = factor_without_unop | unary_op
 
-    private def unary_op: Parser[Expr] = "-" ~ factor_without_unop ^^ {
-      case "-" ~ e => Neg(e)
+    private def unary_op: Parser[Expr] = "-" ~> factor_without_unop ^^ (e => Neg(e))
+
+    private def assign: Parser[Expr] = (keyword("var") ~> id <~ "=") ~ expr ^^ {
+      case id ~ expr => Assign(id, expr)
     }
 
-    private def assign: Parser[Expr] = keyword("var") ~ id ~ "=" ~ expr ^^ {
-      case "var" ~ id ~ "=" ~ expr => Assign(id, expr)
-    }
-
-    private def reassign: Parser[Expr] = id ~ "=" ~ expr ^^ {
-      case id ~ "=" ~ expr => Reassign(id, expr)
+    private def reassign: Parser[Expr] = (id <~ "=") ~ expr ^^ {
+      case id ~ expr => Reassign(id, expr)
     }
 
     private def typ: Parser[Type] = keyword("num") ^^ { _ => NumT() } | keyword("bool") ^^ { _ => BoolT() } | keyword("str") ^^ { _ => StrT() } | funtyp
@@ -248,22 +246,22 @@ object CalcLang {
       case params ~ ret => FunT(params, ret)
     }
 
-    private def fun_param: Parser[(String, Type)] = id ~ ":" ~ typ ^^ {
-      case id ~ ":" ~ typ => (id, typ)
+    private def fun_param: Parser[(String, Type)] = (id <~ ":") ~ typ ^^ {
+      case id ~ typ => (id, typ)
     }
 
     private def fun_params: Parser[List[(String, Type)]] = repsep(fun_param, ",")
 
-    private def fun_def: Parser[Expr] = keyword("def") ~ id ~ function ^^ {
-      case "def" ~ id ~ fun => Assign(id, fun)
+    private def fun_def: Parser[Expr] = keyword("def") ~> id ~ function ^^ {
+      case id ~ fun => Assign(id, fun)
     }
 
-    private def function: Parser[Fun] = "(" ~ fun_params ~ ")" ~ "{" ~ seq ~ "}" ^^ {
-      case "(" ~ params ~ ")" ~ "{" ~ body ~ "}" => Fun(params, body)
+    private def function: Parser[Fun] = ("(" ~> fun_params <~ ")") ~ ("{" ~> seq <~ "}") ^^ {
+      case params ~ body => Fun(params, body)
     }
 
-    private def fun_app: Parser[Expr] = (variable | grouped_expr) ~ "(" ~ repsep(expr, ",") ~ ")" ^^ {
-      case expr ~ "(" ~ list ~ ")" => FunApp(expr, list)
+    private def fun_app: Parser[Expr] = ((variable | grouped_expr) <~ "(") ~ repsep(expr, ",") <~ ")" ^^ {
+      case expr ~ list => FunApp(expr, list)
     }
 
     private def term: Parser[Expr] = factor ~ rep("*" ~ factor | "/" ~ factor | "%" ~ factor) ^^ {
@@ -281,7 +279,7 @@ object CalcLang {
       }
     }
 
-    private def stmt: Parser[Expr] = expr <~ ";" | fun_def
+    private def stmt: Parser[Expr] = fun_def <~ opt(";") | expr <~ ";"
 
     private def seq: Parser[List[Expr]] = rep(stmt) ~ opt(expr) ^^ {
       case exprs ~ Some(expr) => exprs ++ List(expr)

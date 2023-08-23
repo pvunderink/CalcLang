@@ -6,14 +6,14 @@ object Main {
 
     val program =
       """
-        | def func() { var x = 30; () { x } }
+        | def high_func(f: () -> num) { f() }
         |""".stripMargin
 
     println(interpreter.parser.apply(program))
 
-    val result = interpreter.run(program)
+    interpreter.run(program)
 
-    interpreter.run("(func())()")
+    val result = interpreter.run("high_func(() { 10 })")
 
     println(result)
   }
