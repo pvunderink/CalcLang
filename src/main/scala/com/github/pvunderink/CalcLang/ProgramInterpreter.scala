@@ -1,16 +1,26 @@
 package com.github.pvunderink.CalcLang
 
-import com.github.pvunderink.CalcLang.CalcLang.{Inferencer, Interpreter, Parser, Value}
+import com.github.pvunderink.CalcLang.core.CalcLang.Value
+import com.github.pvunderink.CalcLang.core.{Inferencer, Interpreter, Parser}
 
-class ProgramInterpreter(prelude: String) {
+class ProgramInterpreter(val prelude: String,
+                         val internalLookup: String => Option[Value]) {
 
   def this() = {
-    this("")
+    this("", _ => None)
+  }
+
+  def this(prelude: String) = {
+    this(prelude, _ => None)
+  }
+
+  def this(internalLookup: String => Option[Value]) = {
+    this("", internalLookup)
   }
 
   val parser = new Parser
-  val inferencer = new Inferencer
-  val interpreter: Interpreter = new Interpreter
+  val inferencer = new Inferencer(id => internalLookup(id).orElse(BuiltInGlobals.builtInGlobalLookup(id)).map(_.typ))
+  val interpreter: Interpreter = new Interpreter(id => internalLookup(id).orElse(BuiltInGlobals.builtInGlobalLookup(id)))
   private var preludeInterpreted = false
 
   def reset: Unit = {

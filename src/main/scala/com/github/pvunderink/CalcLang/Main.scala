@@ -18,6 +18,6 @@ object Main {
 
     val result = interpreter.run(program)
 
-    println(result);
+    println(result)
   }
 }
