@@ -177,7 +177,7 @@ object CalcLang {
   }
 
   final case class FunVal(params: List[(String, Type)], body: List[TypedExpr], ret: Type, env: List[(String, Value)]) extends Value {
-    override def toString: String = s"(${if (params.nonEmpty) params.map(t => t._2.toString).reduce((acc, elem) => acc + ", " + elem) else ""}) -> ${ret.toString}"
+    override def toString: String = typ.toString
 
     override def size: Int = env.map(_._2.size).sum
 
